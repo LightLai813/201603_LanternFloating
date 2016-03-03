@@ -1,0 +1,233 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <title>Lantern Floating feat. CardBoard </title>
+    <style>
+        html, body {
+            margin: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div id="threejsContainer"></div>
+    <script type="text/javascript" src="Scripts/three.min.js"></script>
+    <script type="text/javascript" src="Scripts/StereoEffect.js"></script>
+    <script type="text/javascript" src="Scripts/DeviceOrientationControls.js"></script>
+    <script type="text/javascript" src="Scripts/OrbitControls.js"></script>
+
+    <script type="text/javascript" src="Scripts/OBJLoader.js"></script>
+    <script type="text/javascript" src="Scripts/water-material.js"></script>
+
+    <script>
+        var camera, scene, renderer;
+        var effect, controls;
+        var element, container;
+        var Sky,Water_Subject;  
+
+        var Clock = new THREE.Clock();              //計時器
+
+        var LM = new THREE.LoadingManager();        //Loading Manager   
+        var objLoader = new THREE.OBJLoader(LM);
+		
+        var lantern;
+
+        init();
+
+        function init() {
+            renderer = new THREE.WebGLRenderer();
+            element = renderer.domElement;
+            container = document.getElementById('threejsContainer');
+            container.appendChild(element);
+
+            effect = new THREE.StereoEffect(renderer);
+            effect.setSize(window.innerWidth, window.innerHeight);
+
+            scene = new THREE.Scene();
+
+            camera = new THREE.PerspectiveCamera(60, 1, 0.001, 10000);
+            camera.position.set(0, 10, 0);
+            scene.add(camera);
+
+            controls = new THREE.OrbitControls(camera, element);
+            controls.rotateUp(Math.PI / 4);
+            controls.target.set(
+              camera.position.x + 0.1,
+              camera.position.y,
+              camera.position.z
+            );
+            controls.noZoom = true;
+            controls.noPan = true;
+
+            function setOrientationControls(e) {
+                if (!e.alpha) {
+                    return;
+                }
+
+                controls = new THREE.DeviceOrientationControls(camera, true);
+                controls.connect();
+                controls.update();
+
+                element.addEventListener('click', fullscreen, false);
+
+                window.removeEventListener('deviceorientation', setOrientationControls, true);
+            }
+            window.addEventListener('deviceorientation', setOrientationControls, true);
+
+
+            //=====光源設計==================================================================================================================
+            //全域光源
+            var ambientLight = new THREE.AmbientLight(0x333333);
+            scene.add(ambientLight);
+
+            //聚光燈
+            var directLight = new THREE.DirectionalLight(0xFFFFCC, 1);
+            directLight.position.set(500, 500, -500);
+            scene.add(directLight);
+
+
+            //=====Sky Box遠景製作===========================================================================================================
+            var Sky_ImageArray = ['source/px.jpg', 'source/nx.jpg',
+								 'source/py.jpg', 'source/ny.jpg',
+								 'source/pz.jpg', 'source/nz.jpg'];
+
+			var Sky_TextureCube = new THREE.CubeTextureLoader().load(Sky_ImageArray);
+			var Sky_Shader = THREE.ShaderLib['cube'];
+			Sky_Shader.uniforms['tCube'].value = Sky_TextureCube;
+
+			var Sky_Material = new THREE.ShaderMaterial({
+				fragmentShader: Sky_Shader.fragmentShader,
+				vertexShader: Sky_Shader.vertexShader,
+				uniforms: Sky_Shader.uniforms,
+				depthWrite: false,
+				side: THREE.DoubleSide
+			});
+			Sky = new THREE.Mesh(new THREE.BoxGeometry(5000, 5000, 5000), Sky_Material);
+			scene.add(Sky);
+
+
+            //=====河道製作==================================================================================================================
+            //水面反射
+            var Water_Texture = new THREE.ImageUtils.loadTexture('source/waternormals.jpg');
+            Water_Texture.wrapS = Water_Texture.wrapT = THREE.RepeatWrapping;
+
+            Water_Subject = new THREE.Water(renderer, camera, scene, {
+                textureWidth: 256,
+                textureHeight: 256,
+                waterNormals: Water_Texture,
+                alpha: 0.8,
+                sunDirection: directLight.position.normalize(),
+                sunColor: 0xffffff,
+                waterColor: 0xAAFFAA,
+                betaVersion: 0,
+                side: THREE.DoubleSide
+            });
+
+            var Water_Mirror = new THREE.Mesh(
+			    new THREE.PlaneBufferGeometry(5000, 5000, 10, 10),
+			    Water_Subject.material
+		    );
+            Water_Mirror.add(Water_Subject);
+            Water_Mirror.rotation.x = Math.PI / 2;
+
+            scene.add(Water_Mirror);
+
+            //=====水燈==================================================================================================================
+            creatLantern();
+
+            window.addEventListener('resize', resize, false);
+            setTimeout(resize, 1);
+
+
+            animate();
+        }
+
+        function creatLantern() {
+            var Lantern_Texture = new THREE.TextureLoader().load('source/BB8.jpg');
+            objLoader.load('source/lantern.obj', function (object) {
+
+                lantern = object;
+                lantern.traverse(function (child) {
+                    if (child instanceof THREE.Mesh) {
+                        child.material = new THREE.MeshLambertMaterial({
+                            map: Lantern_Texture,
+                            wireframe: false,
+                            side: THREE.DoubleSide
+                            /*color: 0xFFFFFF,
+							wireframe: false*/
+                        });
+                    }
+                });
+
+                lantern.position.set(-200, 15, 200);
+                scene.add(lantern);
+            }, onProgress, onError);
+        }
+
+        //Function Obj Loading  ====================================================
+        var onProgress = function (xhr) {
+            if (xhr.lengthComputable) {
+                var percentComplete = xhr.loaded / xhr.total * 100;
+                console.log(Math.round(percentComplete, 2) + '% downloaded');
+            }
+        };
+
+        //Function Obj Loading Error  ==============================================
+        var onError = function (xhr) { };
+
+
+        function resize() {
+            var width = container.offsetWidth;
+            var height = container.offsetHeight;
+
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+
+            //renderer.setSize(width, height);
+            //effect.setSize(width, height);
+        }
+
+        function update(dt) {
+            resize();
+            camera.updateProjectionMatrix();
+            controls.update(dt);
+        }
+
+        function render(dt) {
+            effect.render(scene, camera);
+        }
+
+
+        function animate(t) {
+            requestAnimationFrame(animate);
+
+            var delta = Clock.getDelta(),
+				time = Clock.getElapsedTime() * 10;
+
+            Water_Subject.material.uniforms.time.value += 1.0 / 60.0;
+            Water_Subject.render();
+
+            lantern.position.x = 50 * Math.cos(time/50) - 200;
+            lantern.position.y = 3 * Math.sin(time/7) + 10;
+
+            update(delta);
+            render(delta);
+        }
+
+        function fullscreen() {
+            if (container.requestFullscreen) {
+                container.requestFullscreen();
+            } else if (container.msRequestFullscreen) {
+                container.msRequestFullscreen();
+            } else if (container.mozRequestFullScreen) {
+                container.mozRequestFullScreen();
+            } else if (container.webkitRequestFullscreen) {
+                container.webkitRequestFullscreen();
+            }
+        }
+    </script>
+</body>
+</html>
